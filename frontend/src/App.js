@@ -1578,11 +1578,28 @@ function Dashboard() {
       {/* Sidebar */}
       <div className="w-64 bg-gray-800 border-r border-gray-700">
         <div className="p-6">
-          {/* Logo fixa como parte do header */}
+          {/* Logo upload como estava originalmente acima do menu lateral */}
           <div className="flex items-center gap-3 mb-8">
-            <div className="w-[120px] h-[120px] bg-gradient-to-br from-emerald-500 to-teal-600 rounded-lg flex items-center justify-center shadow-lg">
-              <span className="text-white font-bold text-2xl">IS</span>
+            <div 
+              className="w-[120px] h-[120px] bg-gray-700 rounded-lg flex items-center justify-center border-2 border-dashed border-gray-600 cursor-pointer hover:border-emerald-500 transition-colors"
+              onClick={() => fileInputRef.current?.click()}
+            >
+              {logoUrl ? (
+                <img src={logoUrl} alt="Logo" className="w-full h-full object-contain rounded-lg" />
+              ) : (
+                <div className="text-center">
+                  <Upload className="w-8 h-8 text-gray-400 mx-auto mb-2" />
+                  <span className="text-gray-400 text-xs">Upload Logo<br/>120x120</span>
+                </div>
+              )}
             </div>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              onChange={handleLogoUpload}
+              className="hidden"
+            />
           </div>
           
           <nav className="space-y-2">
