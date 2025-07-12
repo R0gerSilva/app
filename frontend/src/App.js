@@ -277,6 +277,9 @@ function Dashboard() {
   const [filteredOrders, setFilteredOrders] = useState([]);
   const [orderFilter, setOrderFilter] = useState('');
   const [showNotifications, setShowNotifications] = useState(false);
+  const [logoUrl, setLogoUrl] = useState(null);
+
+  const fileInputRef = useRef(null);
 
   // Estados separados para cada formulário para evitar re-renderizações
   const [clientForm, setClientForm] = useState({
