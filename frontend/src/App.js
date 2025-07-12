@@ -344,6 +344,27 @@ function Dashboard() {
   const [transactions, setTransactions] = useState(mockTransactions);
   const [agenda, setAgenda] = useState(mockAgenda);
 
+  // Função para upload da logo
+  const handleLogoUpload = (event) => {
+    const file = event.target.files[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        setLogoUrl(e.target.result);
+        localStorage.setItem('logoEmpresa', e.target.result);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  // Carregar logo do localStorage
+  React.useEffect(() => {
+    const logoSalva = localStorage.getItem('logoEmpresa');
+    if (logoSalva) {
+      setLogoUrl(logoSalva);
+    }
+  }, []);
+
   const menuItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'pedidos', label: 'Pedidos', icon: ShoppingBag },
