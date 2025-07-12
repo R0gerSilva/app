@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useCallback, useMemo } from 'react';
 import './App.css';
 import {
   LayoutDashboard,
@@ -108,7 +108,7 @@ const modelos = ['Camiseta Tradicional', 'Baby Look', 'Infantil', 'Calça de Bri
 const tecidos = ['PV', 'Algodão', 'Dryfit', 'Piquet'];
 const personalizacoes = ['Silk Screen', 'Sublimação Total', 'Bordado'];
 const posicoes = ['Frente', 'Costas', 'Manga Esquerda', 'Manga Direita', 'Lateral Esquerda', 'Lateral Direita', 'Barra'];
-const statusOptions = ['Fazer Mockup', 'Aguardando Cliente', 'Aprovado', 'Pedir tecido', 'Cortar', 'Costurar', 'Bordar', 'Silkar', 'Sublimar', 'Concluído', 'Entregue', 'Pago'];
+const statusOptions = ['Fazer Mockup', 'Aguardando Cliente', 'Aprovado', 'Pedir Tecido', 'Corte', 'Costura', 'Bordado', 'Silk', 'Sublimação', 'Concluído', 'Entregue', 'Pago'];
 
 // Tamanhos específicos por categoria (do arquivo original)
 const tamanhosPorCategoria = {
@@ -137,8 +137,8 @@ const mockOrders = [
     valor_total: 1250.00,
     entrada_paga: 625.00,
     saldo_restante: 625.00,
-    status: 'Costura', 
-    dataEntrega: '2025-07-15', 
+    status: 'Corte', 
+    dataEntrega: '2025-07-13', 
     dataPedido: '2025-07-01',
     itens: [{
       modelo: 'Camiseta Tradicional',
@@ -177,6 +177,33 @@ const mockOrders = [
       posicoes: ['Frente'],
       valor_unitario: 23.00,
       quantidade_total: 100
+    }]
+  },
+  { 
+    id: 3, 
+    cliente: 'Escola São João', 
+    cliente_empresa: 'Escola São João',
+    modelo: 'Polo', 
+    quantidade: 75, 
+    cor: 'Verde', 
+    tamanhos: {P: 15, M: 25, G: 25, GG: 10}, 
+    precoUnitario: 35.00, 
+    total: 2625.00, 
+    valor_total: 2625.00,
+    entrada_paga: 1000.00,
+    saldo_restante: 1625.00,
+    status: 'Costura', 
+    dataEntrega: '2025-07-14', 
+    dataPedido: '2025-07-03',
+    itens: [{
+      modelo: 'Polo',
+      tecido: 'Piquet',
+      cor: 'Verde',
+      tamanhos: {P: 15, M: 25, G: 25, GG: 10},
+      personalizacao: 'Bordado',
+      posicoes: ['Frente'],
+      valor_unitario: 35.00,
+      quantidade_total: 75
     }]
   }
 ];
@@ -227,17 +254,11 @@ let mockTransactions = [
 ];
 
 let mockAgenda = [
-  { id: 1, titulo: 'Entrega - Empresa ABC', data: '2025-07-15', hora: '14:00', tipo: 'entrega', cliente: 'Empresa ABC', status: 'pendente' },
+  { id: 1, titulo: 'Entrega - Empresa ABC', data: '2025-07-13', hora: '14:00', tipo: 'entrega', cliente: 'Empresa ABC', status: 'pendente' },
   { id: 2, titulo: 'Reunião - Novo Cliente', data: '2025-07-16', hora: '10:30', tipo: 'reuniao', cliente: 'Cliente Potencial', status: 'confirmado' },
   { id: 3, titulo: 'Produção - Pedido 150 peças', data: '2025-07-17', hora: '08:00', tipo: 'producao', cliente: 'Loja XYZ', status: 'pendente' },
   { id: 4, titulo: 'Aniversário - Maria Santos', data: '2025-07-20', hora: '00:00', tipo: 'aniversario', cliente: 'Maria Santos', status: 'lembrete' }
 ];
-
-// Arrays para controlar dados localmente
-let localClients = [...mockClients];
-let localOrders = [...mockOrders];
-let localProducts = [...mockProducts];
-let localCategories = [...mockCategories];
 
 function Dashboard() {
   const [activeMenu, setActiveMenu] = useState('dashboard');
@@ -245,34 +266,27 @@ function Dashboard() {
   const [filterPeriod, setFilterPeriod] = useState('30dias');
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-  const [logoUrl, setLogoUrl] = useState(null);
   const [showModal, setShowModal] = useState(false);
   const [modalType, setModalType] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('');
-  const [catalogConfig, setCatalogConfig] = useState({
-    ativo: true,
-    nome: 'Ideal SilkScreen',
-    descricao: 'Serigrafia e bordados personalizados',
-    endereco: 'idealsilkscreen',
-    telefone: '(11) 99999-9999',
-    corPrincipal: '#10b981',
-    corTexto: '#ffffff'
-  });
   const [agendaView, setAgendaView] = useState('hoje');
   const [agendaViewType, setAgendaViewType] = useState('lista');
   const [editingClient, setEditingClient] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [filteredOrders, setFilteredOrders] = useState([]);
+  const [orderFilter, setOrderFilter] = useState('');
+  const [showNotifications, setShowNotifications] = useState(false);
 
-  // Estados para formulários (baseados no arquivo original)
-  const [novoCliente, setNovoCliente] = useState({
+  // Estados separados para cada formulário para evitar re-renderizações
+  const [clientForm, setClientForm] = useState({
     empresa: '',
     contato: '',
     telefone: '',
     endereco: ''
   });
 
-  const [novoPedido, setNovoPedido] = useState({
+  const [orderForm, setOrderForm] = useState({
     cliente_id: '',
     cliente_empresa: '',
     itens: [{
@@ -291,19 +305,41 @@ function Dashboard() {
     layout_images: []
   });
 
+  const [transactionForm, setTransactionForm] = useState({
+    descricao: '',
+    valor: '',
+    categoria: ''
+  });
+
+  const [appointmentForm, setAppointmentForm] = useState({
+    titulo: '',
+    tipo: 'entrega',
+    data: '',
+    hora: '',
+    cliente: ''
+  });
+
+  const [catalogConfig, setCatalogConfig] = useState({
+    ativo: true,
+    nome: 'Ideal SilkScreen',
+    descricao: 'Serigrafia e bordados personalizados',
+    endereco: 'idealsilkscreen',
+    telefone: '(11) 99999-9999',
+    corPrincipal: '#10b981',
+    corTexto: '#ffffff'
+  });
+
   const [buscaCliente, setBuscaCliente] = useState('');
   const [clientesFiltrados, setClientesFiltrados] = useState([]);
   const [mostrarFormularioCliente, setMostrarFormularioCliente] = useState(false);
 
-  // Novos estados para dados locais
-  const [clients, setClients] = useState(localClients);
-  const [orders, setOrders] = useState(localOrders);
-  const [products, setProducts] = useState(localProducts);
-  const [categories, setCategories] = useState(localCategories);
+  // Estados para dados locais
+  const [clients, setClients] = useState(mockClients);
+  const [orders, setOrders] = useState(mockOrders);
+  const [products, setProducts] = useState(mockProducts);
+  const [categories, setCategories] = useState(mockCategories);
   const [transactions, setTransactions] = useState(mockTransactions);
   const [agenda, setAgenda] = useState(mockAgenda);
-  
-  const fileInputRef = useRef(null);
 
   const menuItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -315,8 +351,66 @@ function Dashboard() {
     { id: 'configuracoes', label: 'Configurações', icon: Settings }
   ];
 
+  // Funções para calcular notificações baseadas nas datas de entrega
+  const getNotifications = useMemo(() => {
+    const hoje = new Date();
+    const notifications = [];
+
+    orders.forEach(order => {
+      if (order.dataEntrega && order.status !== 'Pago' && order.status !== 'Entregue') {
+        const dataEntrega = new Date(order.dataEntrega);
+        const diffTime = dataEntrega - hoje;
+        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+        if (diffDays === 0) {
+          notifications.push({
+            id: `entrega-hoje-${order.id}`,
+            tipo: 'urgente',
+            titulo: 'Entrega hoje!',
+            mensagem: `Pedido de ${order.cliente_empresa} deve ser entregue hoje`,
+            pedidoId: order.id
+          });
+        } else if (diffDays === 1) {
+          notifications.push({
+            id: `entrega-amanha-${order.id}`,
+            tipo: 'alerta',
+            titulo: 'Entrega amanhã',
+            mensagem: `Pedido de ${order.cliente_empresa} deve ser entregue amanhã`,
+            pedidoId: order.id
+          });
+        } else if (diffDays === 2) {
+          notifications.push({
+            id: `entrega-2dias-${order.id}`,
+            tipo: 'aviso',
+            titulo: 'Entrega em 2 dias',
+            mensagem: `Pedido de ${order.cliente_empresa} deve ser entregue em 2 dias`,
+            pedidoId: order.id
+          });
+        } else if (diffDays === 3) {
+          notifications.push({
+            id: `entrega-3dias-${order.id}`,
+            tipo: 'info',
+            titulo: 'Entrega em 3 dias',
+            mensagem: `Pedido de ${order.cliente_empresa} deve ser entregue em 3 dias`,
+            pedidoId: order.id
+          });
+        } else if (diffDays < 0) {
+          notifications.push({
+            id: `entrega-atrasada-${order.id}`,
+            tipo: 'urgente',
+            titulo: 'Entrega atrasada!',
+            mensagem: `Pedido de ${order.cliente_empresa} está ${Math.abs(diffDays)} dia(s) atrasado`,
+            pedidoId: order.id
+          });
+        }
+      }
+    });
+
+    return notifications;
+  }, [orders]);
+
   // Função para calcular valor com adicional (do arquivo original)
-  const calcularValorComAdicional = (valorUnitario, tamanhos) => {
+  const calcularValorComAdicional = useCallback((valorUnitario, tamanhos) => {
     let valorTotal = 0;
     let quantidadeTotal = 0;
     let valorAdicional = 0;
@@ -337,45 +431,42 @@ function Dashboard() {
     });
     
     return { valorTotal, quantidadeTotal, valorAdicional };
-  };
-
-  // Função para calcular quantidade total
-  const calcularQuantidadeTotal = (tamanhos) => {
-    return Object.values(tamanhos).reduce((total, qtd) => total + (parseInt(qtd) || 0), 0);
-  };
-
-  // Função para upload da logo
-  const handleLogoUpload = (event) => {
-    const file = event.target.files[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        setLogoUrl(e.target.result);
-        localStorage.setItem('logoEmpresa', e.target.result);
-      };
-      reader.readAsDataURL(file);
-    }
-  };
-
-  // Carregar logo do localStorage
-  useState(() => {
-    const logoSalva = localStorage.getItem('logoEmpresa');
-    if (logoSalva) {
-      setLogoUrl(logoSalva);
-    }
   }, []);
 
-  const openModal = (type) => {
+  // Função para calcular quantidade total
+  const calcularQuantidadeTotal = useCallback((tamanhos) => {
+    return Object.values(tamanhos).reduce((total, qtd) => total + (parseInt(qtd) || 0), 0);
+  }, []);
+
+  // Função para filtrar pedidos por status e ir para aba pedidos
+  const filtrarPedidosPorStatus = useCallback((status) => {
+    const filtered = orders.filter(order => order.status === status);
+    setFilteredOrders(filtered);
+    setOrderFilter(`Status: ${status}`);
+    setActiveMenu('pedidos');
+  }, [orders]);
+
+  // Função para filtrar pedidos com saldo a receber e ir para aba pedidos
+  const filtrarPedidosAReceber = useCallback(() => {
+    const filtered = orders
+      .filter(order => order.saldo_restante > 0 && order.status !== 'Pago')
+      .sort((a, b) => new Date(a.dataEntrega) - new Date(b.dataEntrega));
+    setFilteredOrders(filtered);
+    setOrderFilter('A Receber (ordenado por data de entrega)');
+    setActiveMenu('pedidos');
+  }, [orders]);
+
+  const openModal = useCallback((type) => {
     setModalType(type);
     setShowModal(true);
-  };
+  }, []);
 
-  const closeModal = () => {
+  const closeModal = useCallback(() => {
     setShowModal(false);
     setModalType('');
     // Reset form states
-    setNovoCliente({ empresa: '', contato: '', telefone: '', endereco: '' });
-    setNovoPedido({
+    setClientForm({ empresa: '', contato: '', telefone: '', endereco: '' });
+    setOrderForm({
       cliente_id: '',
       cliente_empresa: '',
       itens: [{
@@ -393,31 +484,30 @@ function Dashboard() {
       observacoes: '',
       layout_images: []
     });
+    setTransactionForm({ descricao: '', valor: '', categoria: '' });
+    setAppointmentForm({ titulo: '', tipo: 'entrega', data: '', hora: '', cliente: '' });
     setBuscaCliente('');
     setClientesFiltrados([]);
     setMostrarFormularioCliente(false);
-  };
+  }, []);
 
-  // FUNÇÕES PARA CLIENTES (adaptadas do arquivo original)
-  const criarCliente = async (e) => {
+  // FUNÇÕES PARA CLIENTES (otimizadas para evitar re-renderizações)
+  const criarCliente = useCallback(async (e) => {
     e.preventDefault();
     setLoading(true);
     
     try {
       const novoClienteData = {
         id: Date.now(),
-        ...novoCliente,
-        email: `${novoCliente.contato.toLowerCase().replace(' ', '.')}@${novoCliente.empresa.toLowerCase().replace(' ', '')}.com`,
+        ...clientForm,
+        email: `${clientForm.contato.toLowerCase().replace(' ', '.')}@${clientForm.empresa.toLowerCase().replace(' ', '')}.com`,
         totalCompras: 0,
         ultimaCompra: null,
         pedidosTotal: 0
       };
       
-      const updatedClients = [...clients, novoClienteData];
-      setClients(updatedClients);
-      localClients = updatedClients;
-      
-      setNovoCliente({ empresa: '', contato: '', telefone: '', endereco: '' });
+      setClients(prev => [...prev, novoClienteData]);
+      setClientForm({ empresa: '', contato: '', telefone: '', endereco: '' });
       closeModal();
       alert('Cliente criado com sucesso!');
     } catch (error) {
@@ -426,267 +516,40 @@ function Dashboard() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [clientForm, closeModal]);
 
-  const excluirCliente = (clienteId, empresaCliente) => {
+  const excluirCliente = useCallback((clienteId, empresaCliente) => {
     if (window.confirm(`Tem certeza que deseja excluir o cliente "${empresaCliente}"?`)) {
-      const updatedClients = clients.filter(c => c.id !== clienteId);
-      setClients(updatedClients);
-      localClients = updatedClients;
+      setClients(prev => prev.filter(c => c.id !== clienteId));
       alert('Cliente excluído com sucesso!');
     }
-  };
+  }, []);
 
-  const iniciarEdicaoCliente = (cliente) => {
+  const iniciarEdicaoCliente = useCallback((cliente) => {
     setEditingClient(cliente.id);
-    setNovoCliente({
+    setClientForm({
       empresa: cliente.empresa,
       contato: cliente.contato,
       telefone: cliente.telefone,
       endereco: cliente.endereco
     });
-  };
+  }, []);
 
-  const salvarEdicaoCliente = () => {
-    const updatedClients = clients.map(c => 
+  const salvarEdicaoCliente = useCallback(() => {
+    setClients(prev => prev.map(c => 
       c.id === editingClient 
-        ? { ...c, ...novoCliente }
+        ? { ...c, ...clientForm }
         : c
-    );
-    setClients(updatedClients);
-    localClients = updatedClients;
+    ));
     setEditingClient(null);
-    setNovoCliente({ empresa: '', contato: '', telefone: '', endereco: '' });
+    setClientForm({ empresa: '', contato: '', telefone: '', endereco: '' });
     alert('Cliente atualizado com sucesso!');
-  };
+  }, [editingClient, clientForm]);
 
-  const cancelarEdicaoCliente = () => {
+  const cancelarEdicaoCliente = useCallback(() => {
     setEditingClient(null);
-    setNovoCliente({ empresa: '', contato: '', telefone: '', endereco: '' });
-  };
-
-  // FUNÇÕES PARA PEDIDOS (adaptadas do arquivo original)
-  const filtrarClientes = (busca) => {
-    if (!busca) {
-      setClientesFiltrados([]);
-      return;
-    }
-    
-    const filtrados = clients.filter(cliente => 
-      cliente.empresa.toLowerCase().includes(busca.toLowerCase()) ||
-      cliente.contato.toLowerCase().includes(busca.toLowerCase())
-    );
-    setClientesFiltrados(filtrados);
-  };
-
-  const selecionarCliente = (cliente) => {
-    setNovoPedido({
-      ...novoPedido,
-      cliente_id: cliente.id,
-      cliente_empresa: cliente.empresa
-    });
-    setBuscaCliente(cliente.empresa);
-    setClientesFiltrados([]);
-  };
-
-  const buscarCliente = (valor) => {
-    setBuscaCliente(valor);
-    if (valor.length > 0) {
-      filtrarClientes(valor);
-    } else {
-      setClientesFiltrados([]);
-      setNovoPedido({
-        ...novoPedido,
-        cliente_id: '',
-        cliente_empresa: ''
-      });
-    }
-  };
-
-  const atualizarItemPedido = (index, field, value) => {
-    const novosItens = [...novoPedido.itens];
-    novosItens[index][field] = value;
-    
-    if (field === 'tamanhos') {
-      novosItens[index].quantidade_total = calcularQuantidadeTotal(value);
-    }
-    
-    if (field === 'modelo') {
-      novosItens[index].tamanhos = {};
-      novosItens[index].quantidade_total = 0;
-    }
-    
-    setNovoPedido({ ...novoPedido, itens: novosItens });
-  };
-
-  const atualizarTamanho = (itemIndex, tamanho, quantidade) => {
-    const novosItens = [...novoPedido.itens];
-    novosItens[itemIndex].tamanhos[tamanho] = quantidade;
-    novosItens[itemIndex].quantidade_total = calcularQuantidadeTotal(novosItens[itemIndex].tamanhos);
-    setNovoPedido({ ...novoPedido, itens: novosItens });
-  };
-
-  const adicionarItemPedido = () => {
-    setNovoPedido({
-      ...novoPedido,
-      itens: [...novoPedido.itens, {
-        modelo: '',
-        tecido: '',
-        cor: '',
-        tamanhos: {},
-        personalizacao: '',
-        posicoes: [],
-        valor_unitario: 0,
-        quantidade_total: 0,
-        valor_adicional: 0
-      }]
-    });
-  };
-
-  const removerItemPedido = (index) => {
-    const novosItens = novoPedido.itens.filter((_, i) => i !== index);
-    setNovoPedido({ ...novoPedido, itens: novosItens });
-  };
-
-  const calcularValorTotalPedido = () => {
-    return novoPedido.itens.reduce((total, item) => {
-      const { valorTotal: valorItem } = calcularValorComAdicional(
-        parseFloat(item.valor_unitario) || 0,
-        item.tamanhos
-      );
-      return total + valorItem;
-    }, 0);
-  };
-
-  const handleMultipleImageUpload = (e) => {
-    const files = Array.from(e.target.files);
-    if (files.length > 5) {
-      alert('Máximo de 5 imagens permitidas');
-      return;
-    }
-
-    const imagePromises = files.map(file => {
-      return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = (event) => resolve(event.target.result);
-        reader.onerror = reject;
-        reader.readAsDataURL(file);
-      });
-    });
-
-    Promise.all(imagePromises).then(images => {
-      setNovoPedido({
-        ...novoPedido,
-        layout_images: [...(novoPedido.layout_images || []), ...images].slice(0, 5)
-      });
-    });
-  };
-
-  const removerImagem = (index) => {
-    const novasImages = novoPedido.layout_images.filter((_, i) => i !== index);
-    setNovoPedido({...novoPedido, layout_images: novasImages});
-  };
-
-  const criarPedido = (e) => {
-    e.preventDefault();
-    setLoading(true);
-    
-    try {
-      const valorTotal = calcularValorTotalPedido();
-      const entradaPaga = valorTotal * 0.5; // 50% de entrada
-      const saldoRestante = valorTotal - entradaPaga;
-      
-      const novoPedidoData = {
-        id: Date.now(),
-        cliente: novoPedido.cliente_empresa,
-        cliente_empresa: novoPedido.cliente_empresa,
-        valor_total: valorTotal,
-        entrada_paga: entradaPaga,
-        saldo_restante: saldoRestante,
-        status: 'Fazer Mockup',
-        dataEntrega: novoPedido.previsao_entrega,
-        dataPedido: new Date().toISOString().split('T')[0],
-        itens: novoPedido.itens,
-        observacoes: novoPedido.observacoes,
-        layout_images: novoPedido.layout_images || []
-      };
-      
-      const updatedOrders = [...orders, novoPedidoData];
-      setOrders(updatedOrders);
-      localOrders = updatedOrders;
-      
-      alert('Pedido criado com sucesso!');
-      closeModal();
-      setActiveMenu('pedidos');
-    } catch (error) {
-      console.error('Erro ao criar pedido:', error);
-      alert('Erro ao criar pedido');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // FUNÇÕES PARA TRANSAÇÕES FINANCEIRAS
-  const adicionarTransacao = (tipo, dados) => {
-    const novaTransacao = {
-      id: Date.now(),
-      tipo: tipo,
-      data: new Date().toISOString().split('T')[0],
-      ...dados
-    };
-    
-    const updatedTransactions = [...transactions, novaTransacao];
-    setTransactions(updatedTransactions);
-    mockTransactions = updatedTransactions;
-    
-    alert(`${tipo === 'receita' ? 'Receita' : 'Despesa'} adicionada com sucesso!`);
-    closeModal();
-  };
-
-  // FUNÇÕES PARA AGENDA
-  const adicionarCompromisso = (dados) => {
-    const novoCompromisso = {
-      id: Date.now(),
-      ...dados,
-      status: 'pendente'
-    };
-    
-    const updatedAgenda = [...agenda, novoCompromisso];
-    setAgenda(updatedAgenda);
-    mockAgenda = updatedAgenda;
-    
-    alert('Compromisso adicionado com sucesso!');
-    closeModal();
-  };
-
-  // Filtrar agenda baseado na visualização
-  const filtrarAgenda = () => {
-    const hoje = new Date();
-    const inicioSemana = new Date(hoje);
-    inicioSemana.setDate(hoje.getDate() - hoje.getDay());
-    const fimSemana = new Date(inicioSemana);
-    fimSemana.setDate(inicioSemana.getDate() + 6);
-    
-    const inicioMes = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
-    const fimMes = new Date(hoje.getFullYear(), hoje.getMonth() + 1, 0);
-
-    return agenda.filter(item => {
-      const dataItem = new Date(item.data);
-      
-      switch(agendaView) {
-        case 'hoje':
-          return dataItem.toDateString() === hoje.toDateString();
-        case 'semana':
-          return dataItem >= inicioSemana && dataItem <= fimSemana;
-        case 'mes':
-          return dataItem >= inicioMes && dataItem <= fimMes;
-        case 'aniversarios':
-          return item.tipo === 'aniversario';
-        default:
-          return true;
-      }
-    });
-  };
+    setClientForm({ empresa: '', contato: '', telefone: '', endereco: '' });
+  }, []);
 
   const StatusIcon = ({ status }) => {
     switch(status) {
@@ -731,432 +594,16 @@ function Dashboard() {
     );
   };
 
-  // FORMULÁRIOS DOS MODAIS
-  const PedidoForm = () => (
-    <form onSubmit={criarPedido} className="space-y-6">
-      {/* Seleção de Cliente */}
-      <div>
-        <label className="block text-gray-300 text-sm mb-2">Cliente *</label>
-        <div className="relative">
-          <input
-            type="text"
-            value={buscaCliente}
-            onChange={(e) => buscarCliente(e.target.value)}
-            placeholder="Digite o nome da empresa ou contato..."
-            className="w-full bg-gray-700 text-white rounded-lg px-3 py-2 border border-gray-600"
-            required
-          />
-          
-          {clientesFiltrados.length > 0 && buscaCliente && (
-            <div className="absolute z-10 w-full bg-gray-700 border border-gray-600 rounded-md mt-1 max-h-60 overflow-y-auto">
-              {clientesFiltrados.map((cliente) => (
-                <button
-                  key={cliente.id}
-                  type="button"
-                  onClick={() => selecionarCliente(cliente)}
-                  className="w-full p-3 text-left border-b border-gray-600 hover:bg-gray-600 text-white"
-                >
-                  <div className="font-medium">{cliente.empresa}</div>
-                  <div className="text-sm text-gray-400">{cliente.contato} - {cliente.telefone}</div>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-        
-        <div className="mt-2 flex items-center space-x-2">
-          <button
-            type="button"
-            onClick={() => setMostrarFormularioCliente(!mostrarFormularioCliente)}
-            className="bg-gray-600 text-white px-4 py-2 rounded-md hover:bg-gray-500 text-sm"
-          >
-            {mostrarFormularioCliente ? 'Cancelar' : 'Novo Cliente'}
-          </button>
-          {novoPedido.cliente_empresa && (
-            <span className="text-sm text-green-400">
-              ✓ Cliente selecionado: {novoPedido.cliente_empresa}
-            </span>
-          )}
-        </div>
-      </div>
-
-      {/* Formulário para novo cliente */}
-      {mostrarFormularioCliente && (
-        <div className="bg-gray-700 p-4 rounded-lg border border-gray-600">
-          <h4 className="font-semibold text-white mb-3">Cadastrar Novo Cliente</h4>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-300 mb-1">Empresa *</label>
-              <input
-                type="text"
-                value={novoCliente.empresa}
-                onChange={(e) => setNovoCliente({...novoCliente, empresa: e.target.value})}
-                className="w-full p-2 bg-gray-600 border border-gray-500 rounded-md text-white"
-                required
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-300 mb-1">Contato *</label>
-              <input
-                type="text"
-                value={novoCliente.contato}
-                onChange={(e) => setNovoCliente({...novoCliente, contato: e.target.value})}
-                className="w-full p-2 bg-gray-600 border border-gray-500 rounded-md text-white"
-                required
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-300 mb-1">Telefone *</label>
-              <input
-                type="text"
-                value={novoCliente.telefone}
-                onChange={(e) => setNovoCliente({...novoCliente, telefone: e.target.value})}
-                className="w-full p-2 bg-gray-600 border border-gray-500 rounded-md text-white"
-                required
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-300 mb-1">Endereço *</label>
-              <input
-                type="text"
-                value={novoCliente.endereco}
-                onChange={(e) => setNovoCliente({...novoCliente, endereco: e.target.value})}
-                className="w-full p-2 bg-gray-600 border border-gray-500 rounded-md text-white"
-                required
-              />
-            </div>
-          </div>
-          <div className="mt-4">
-            <button
-              type="button"
-              onClick={async () => {
-                try {
-                  const clienteData = {
-                    id: Date.now(),
-                    ...novoCliente,
-                    email: `${novoCliente.contato.toLowerCase().replace(' ', '.')}@${novoCliente.empresa.toLowerCase().replace(' ', '')}.com`,
-                    totalCompras: 0,
-                    ultimaCompra: null,
-                    pedidosTotal: 0
-                  };
-                  
-                  const updatedClients = [...clients, clienteData];
-                  setClients(updatedClients);
-                  localClients = updatedClients;
-                  
-                  setNovoPedido({
-                    ...novoPedido,
-                    cliente_id: clienteData.id,
-                    cliente_empresa: novoCliente.empresa
-                  });
-                  setBuscaCliente(novoCliente.empresa);
-                  setMostrarFormularioCliente(false);
-                  setNovoCliente({ empresa: '', contato: '', telefone: '', endereco: '' });
-                  alert('Cliente criado e selecionado com sucesso!');
-                } catch (error) {
-                  alert('Erro ao criar cliente');
-                }
-              }}
-              disabled={loading}
-              className="bg-emerald-500 hover:bg-emerald-600 text-white px-4 py-2 rounded-md"
-            >
-              Salvar Cliente
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Upload de imagens de layout */}
-      <div>
-        <label className="block text-gray-300 text-sm mb-2">Imagens de Layout (até 5 imagens)</label>
-        <div className="border-2 border-dashed border-gray-600 rounded-lg p-4">
-          <input
-            type="file"
-            accept="image/*"
-            multiple
-            onChange={handleMultipleImageUpload}
-            className="w-full text-white"
-          />
-          <p className="text-xs text-gray-400 mt-2">
-            Máximo 5 imagens. Formatos: PNG, JPG, JPEG
-          </p>
-        </div>
-        
-        {novoPedido.layout_images && novoPedido.layout_images.length > 0 && (
-          <div className="mt-4">
-            <p className="text-sm text-gray-300 mb-2">
-              Preview das Imagens ({novoPedido.layout_images.length}/5):
-            </p>
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
-              {novoPedido.layout_images.map((image, index) => (
-                <div key={index} className="relative">
-                  <img
-                    src={image}
-                    alt={`Layout ${index + 1}`}
-                    className="w-full h-20 object-cover border border-gray-500 rounded"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => removerImagem(index)}
-                    className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-6 h-6 text-xs flex items-center justify-center hover:bg-red-600"
-                  >
-                    ×
-                  </button>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Itens do pedido */}
-      <div>
-        <div className="flex justify-between items-center mb-4">
-          <h4 className="text-lg font-bold text-white">Itens do Pedido</h4>
-          <button
-            type="button"
-            onClick={adicionarItemPedido}
-            className="bg-gray-600 text-white px-4 py-2 rounded-lg hover:bg-gray-500"
-          >
-            + Adicionar Item
-          </button>
-        </div>
-
-        {novoPedido.itens.map((item, itemIndex) => (
-          <div key={itemIndex} className="bg-gray-700 rounded-lg p-4 mb-4 border border-gray-600">
-            <div className="flex justify-between items-center mb-4">
-              <h5 className="font-semibold text-white">Item {itemIndex + 1}</h5>
-              {novoPedido.itens.length > 1 && (
-                <button
-                  type="button"
-                  onClick={() => removerItemPedido(itemIndex)}
-                  className="text-red-400 hover:text-red-300"
-                >
-                  Remover
-                </button>
-              )}
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1">Modelo *</label>
-                <select
-                  value={item.modelo}
-                  onChange={(e) => atualizarItemPedido(itemIndex, 'modelo', e.target.value)}
-                  className="w-full p-2 bg-gray-600 border border-gray-500 rounded-md text-white"
-                  required
-                >
-                  <option value="">Selecione...</option>
-                  {modelos.map(modelo => (
-                    <option key={modelo} value={modelo}>{modelo}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1">Tecido *</label>
-                <select
-                  value={item.tecido}
-                  onChange={(e) => atualizarItemPedido(itemIndex, 'tecido', e.target.value)}
-                  className="w-full p-2 bg-gray-600 border border-gray-500 rounded-md text-white"
-                  required
-                >
-                  <option value="">Selecione...</option>
-                  {tecidos.map(tecido => (
-                    <option key={tecido} value={tecido}>{tecido}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1">Cor *</label>
-                <input
-                  type="text"
-                  value={item.cor}
-                  onChange={(e) => atualizarItemPedido(itemIndex, 'cor', e.target.value)}
-                  className="w-full p-2 bg-gray-600 border border-gray-500 rounded-md text-white"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1">Personalização *</label>
-                <select
-                  value={item.personalizacao}
-                  onChange={(e) => atualizarItemPedido(itemIndex, 'personalizacao', e.target.value)}
-                  className="w-full p-2 bg-gray-600 border border-gray-500 rounded-md text-white"
-                  required
-                >
-                  <option value="">Selecione...</option>
-                  {personalizacoes.map(pers => (
-                    <option key={pers} value={pers}>{pers}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1">Valor Unitário (R$) *</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={item.valor_unitario}
-                  onChange={(e) => atualizarItemPedido(itemIndex, 'valor_unitario', parseFloat(e.target.value) || 0)}
-                  className="w-full p-2 bg-gray-600 border border-gray-500 rounded-md text-white"
-                  required
-                />
-                <p className="text-xs text-gray-400 mt-1">*EGG, EGG1, EGG2, Sob Medida: +R$ 5,00</p>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1">Quantidade Total</label>
-                <input
-                  type="number"
-                  value={item.quantidade_total}
-                  readOnly
-                  className="w-full p-2 bg-gray-800 border border-gray-500 rounded-md text-gray-400"
-                />
-              </div>
-            </div>
-
-            {/* Tamanhos específicos por categoria */}
-            {item.modelo && tamanhosPorCategoria[item.modelo] && (
-              <div className="mt-4">
-                <label className="block text-sm font-medium text-gray-300 mb-2">
-                  Tamanhos e Quantidades - {item.modelo}
-                </label>
-                <div className="grid grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-2">
-                  {tamanhosPorCategoria[item.modelo].map(tamanho => (
-                    <div key={tamanho} className="text-center">
-                      <label className="block text-xs font-medium text-gray-300 mb-1">
-                        {tamanho}
-                        {tamanhosComValorAdicional.includes(tamanho) && (
-                          <span className="text-green-400">*</span>
-                        )}
-                      </label>
-                      <input
-                        type="number"
-                        min="0"
-                        value={item.tamanhos[tamanho] || 0}
-                        onChange={(e) => atualizarTamanho(itemIndex, tamanho, parseInt(e.target.value) || 0)}
-                        className="w-full p-1 bg-gray-600 border border-gray-500 rounded-md text-white text-sm text-center"
-                      />
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Posições */}
-            <div className="mt-4">
-              <label className="block text-sm font-medium text-gray-300 mb-2">
-                Posições da Personalização
-              </label>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                {posicoes.map(posicao => (
-                  <label key={posicao} className="flex items-center space-x-2">
-                    <input
-                      type="checkbox"
-                      checked={item.posicoes.includes(posicao)}
-                      onChange={(e) => {
-                        const novasPos = e.target.checked
-                          ? [...item.posicoes, posicao]
-                          : item.posicoes.filter(p => p !== posicao);
-                        atualizarItemPedido(itemIndex, 'posicoes', novasPos);
-                      }}
-                      className="rounded border-gray-500"
-                    />
-                    <span className="text-sm text-gray-300">{posicao}</span>
-                  </label>
-                ))}
-              </div>
-            </div>
-
-            {/* Valor total do item */}
-            <div className="mt-4 p-3 bg-gray-600 rounded-lg">
-              <div className="flex justify-between items-center">
-                <span className="font-medium text-gray-300">Valor Total do Item:</span>
-                <span className="text-lg font-bold text-white">
-                  R$ {calcularValorComAdicional(
-                    parseFloat(item.valor_unitario) || 0,
-                    item.tamanhos
-                  ).valorTotal.toFixed(2)}
-                </span>
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {/* Valor total do pedido */}
-      <div className="bg-gray-700 p-6 rounded-lg border border-gray-600">
-        <div className="text-center">
-          <div className="text-xl font-bold text-white mb-4">VALOR TOTAL DO PEDIDO</div>
-          <div className="text-3xl font-bold text-green-400 mb-4">
-            R$ {calcularValorTotalPedido().toFixed(2)}
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="bg-green-900 p-4 rounded-lg">
-              <div className="font-medium text-green-300">Entrada (50%)</div>
-              <div className="text-xl font-bold text-green-400">
-                R$ {(calcularValorTotalPedido() * 0.5).toFixed(2)}
-              </div>
-            </div>
-            <div className="bg-orange-900 p-4 rounded-lg">
-              <div className="font-medium text-orange-300">A Receber</div>
-              <div className="text-xl font-bold text-orange-400">
-                R$ {(calcularValorTotalPedido() * 0.5).toFixed(2)}
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Informações adicionais */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div>
-          <label className="block text-gray-300 text-sm mb-1">Previsão de Entrega</label>
-          <input
-            type="date"
-            value={novoPedido.previsao_entrega}
-            onChange={(e) => setNovoPedido({...novoPedido, previsao_entrega: e.target.value})}
-            className="w-full bg-gray-700 text-white rounded-lg px-3 py-2 border border-gray-600"
-          />
-        </div>
-        <div>
-          <label className="block text-gray-300 text-sm mb-1">Observações</label>
-          <textarea
-            value={novoPedido.observacoes}
-            onChange={(e) => setNovoPedido({...novoPedido, observacoes: e.target.value})}
-            className="w-full bg-gray-700 text-white rounded-lg px-3 py-2 border border-gray-600"
-            rows="3"
-          />
-        </div>
-      </div>
-
-      <div className="flex gap-3 pt-4">
-        <button
-          type="submit"
-          disabled={loading || !novoPedido.cliente_id}
-          className="flex-1 bg-emerald-500 hover:bg-emerald-600 text-white py-3 px-4 rounded-lg disabled:opacity-50"
-        >
-          {loading ? 'Criando Pedido...' : 'Criar Pedido'}
-        </button>
-        <button type="button" onClick={closeModal} className="px-6 py-3 bg-gray-600 hover:bg-gray-500 text-white rounded-lg">
-          Cancelar
-        </button>
-      </div>
-    </form>
-  );
-
-  const ClienteForm = () => (
+  // COMPONENTE DE FORMULÁRIO DE CLIENTE OTIMIZADO
+  const ClienteForm = React.memo(() => (
     <form onSubmit={criarCliente} className="space-y-4">
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div>
           <label className="block text-gray-300 text-sm mb-2">Nome da Empresa *</label>
           <input 
             type="text" 
-            value={novoCliente.empresa}
-            onChange={(e) => setNovoCliente({...novoCliente, empresa: e.target.value})}
+            value={clientForm.empresa}
+            onChange={(e) => setClientForm(prev => ({...prev, empresa: e.target.value}))}
             className="w-full bg-gray-700 text-white rounded-lg px-3 py-2 border border-gray-600" 
             required
           />
@@ -1165,8 +612,8 @@ function Dashboard() {
           <label className="block text-gray-300 text-sm mb-2">Nome do Contato *</label>
           <input 
             type="text" 
-            value={novoCliente.contato}
-            onChange={(e) => setNovoCliente({...novoCliente, contato: e.target.value})}
+            value={clientForm.contato}
+            onChange={(e) => setClientForm(prev => ({...prev, contato: e.target.value}))}
             className="w-full bg-gray-700 text-white rounded-lg px-3 py-2 border border-gray-600" 
             required
           />
@@ -1175,8 +622,8 @@ function Dashboard() {
           <label className="block text-gray-300 text-sm mb-2">Telefone/WhatsApp *</label>
           <input 
             type="text" 
-            value={novoCliente.telefone}
-            onChange={(e) => setNovoCliente({...novoCliente, telefone: e.target.value})}
+            value={clientForm.telefone}
+            onChange={(e) => setClientForm(prev => ({...prev, telefone: e.target.value}))}
             className="w-full bg-gray-700 text-white rounded-lg px-3 py-2 border border-gray-600" 
             required
           />
@@ -1185,8 +632,8 @@ function Dashboard() {
           <label className="block text-gray-300 text-sm mb-2">Endereço *</label>
           <input 
             type="text" 
-            value={novoCliente.endereco}
-            onChange={(e) => setNovoCliente({...novoCliente, endereco: e.target.value})}
+            value={clientForm.endereco}
+            onChange={(e) => setClientForm(prev => ({...prev, endereco: e.target.value}))}
             className="w-full bg-gray-700 text-white rounded-lg px-3 py-2 border border-gray-600" 
             required
           />
@@ -1205,166 +652,7 @@ function Dashboard() {
         </button>
       </div>
     </form>
-  );
-
-  const TransacaoForm = ({ tipo }) => {
-    const [transacao, setTransacao] = useState({
-      descricao: '',
-      valor: '',
-      categoria: ''
-    });
-
-    const handleSubmit = (e) => {
-      e.preventDefault();
-      adicionarTransacao(tipo, {
-        ...transacao,
-        valor: tipo === 'despesa' ? -Math.abs(parseFloat(transacao.valor)) : Math.abs(parseFloat(transacao.valor))
-      });
-    };
-
-    return (
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label className="block text-gray-300 text-sm mb-2">Descrição *</label>
-            <input 
-              type="text" 
-              value={transacao.descricao}
-              onChange={(e) => setTransacao({...transacao, descricao: e.target.value})}
-              className="w-full bg-gray-700 text-white rounded-lg px-3 py-2 border border-gray-600" 
-              required
-            />
-          </div>
-          <div>
-            <label className="block text-gray-300 text-sm mb-2">Valor (R$) *</label>
-            <input 
-              type="number" 
-              step="0.01" 
-              value={transacao.valor}
-              onChange={(e) => setTransacao({...transacao, valor: e.target.value})}
-              className="w-full bg-gray-700 text-white rounded-lg px-3 py-2 border border-gray-600" 
-              required
-            />
-          </div>
-          <div>
-            <label className="block text-gray-300 text-sm mb-2">Categoria *</label>
-            <select 
-              value={transacao.categoria}
-              onChange={(e) => setTransacao({...transacao, categoria: e.target.value})}
-              className="w-full bg-gray-700 text-white rounded-lg px-3 py-2 border border-gray-600"
-              required
-            >
-              <option value="">Selecione uma categoria</option>
-              <option value="Vendas">Vendas</option>
-              <option value="Materiais">Materiais</option>
-              <option value="Fixos">Fixos</option>
-              <option value="Marketing">Marketing</option>
-              <option value="Equipamentos">Equipamentos</option>
-            </select>
-          </div>
-        </div>
-        <div className="flex gap-3 pt-4">
-          <button
-            type="submit"
-            disabled={loading}
-            className="flex-1 bg-emerald-500 hover:bg-emerald-600 text-white py-2 px-4 rounded-lg disabled:opacity-50"
-          >
-            {loading ? 'Salvando...' : `Salvar ${tipo === 'receita' ? 'Receita' : 'Despesa'}`}
-          </button>
-          <button type="button" onClick={closeModal} className="px-6 py-2 bg-gray-600 hover:bg-gray-500 text-white rounded-lg">
-            Cancelar
-          </button>
-        </div>
-      </form>
-    );
-  };
-
-  const CompromissoForm = () => {
-    const [compromisso, setCompromisso] = useState({
-      titulo: '',
-      tipo: 'entrega',
-      data: '',
-      hora: '',
-      cliente: ''
-    });
-
-    const handleSubmit = (e) => {
-      e.preventDefault();
-      adicionarCompromisso(compromisso);
-    };
-
-    return (
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label className="block text-gray-300 text-sm mb-2">Título *</label>
-            <input 
-              type="text" 
-              value={compromisso.titulo}
-              onChange={(e) => setCompromisso({...compromisso, titulo: e.target.value})}
-              className="w-full bg-gray-700 text-white rounded-lg px-3 py-2 border border-gray-600" 
-              required
-            />
-          </div>
-          <div>
-            <label className="block text-gray-300 text-sm mb-2">Tipo *</label>
-            <select 
-              value={compromisso.tipo}
-              onChange={(e) => setCompromisso({...compromisso, tipo: e.target.value})}
-              className="w-full bg-gray-700 text-white rounded-lg px-3 py-2 border border-gray-600"
-            >
-              <option value="entrega">Entrega</option>
-              <option value="reuniao">Reunião</option>
-              <option value="producao">Produção</option>
-              <option value="aniversario">Aniversário</option>
-            </select>
-          </div>
-          <div>
-            <label className="block text-gray-300 text-sm mb-2">Data *</label>
-            <input 
-              type="date" 
-              value={compromisso.data}
-              onChange={(e) => setCompromisso({...compromisso, data: e.target.value})}
-              className="w-full bg-gray-700 text-white rounded-lg px-3 py-2 border border-gray-600" 
-              required
-            />
-          </div>
-          <div>
-            <label className="block text-gray-300 text-sm mb-2">Hora *</label>
-            <input 
-              type="time" 
-              value={compromisso.hora}
-              onChange={(e) => setCompromisso({...compromisso, hora: e.target.value})}
-              className="w-full bg-gray-700 text-white rounded-lg px-3 py-2 border border-gray-600" 
-              required
-            />
-          </div>
-        </div>
-        <div>
-          <label className="block text-gray-300 text-sm mb-2">Cliente/Pessoa *</label>
-          <input 
-            type="text" 
-            value={compromisso.cliente}
-            onChange={(e) => setCompromisso({...compromisso, cliente: e.target.value})}
-            className="w-full bg-gray-700 text-white rounded-lg px-3 py-2 border border-gray-600" 
-            required
-          />
-        </div>
-        <div className="flex gap-3 pt-4">
-          <button
-            type="submit"
-            disabled={loading}
-            className="flex-1 bg-emerald-500 hover:bg-emerald-600 text-white py-2 px-4 rounded-lg disabled:opacity-50"
-          >
-            {loading ? 'Salvando...' : 'Salvar Compromisso'}
-          </button>
-          <button type="button" onClick={closeModal} className="px-6 py-2 bg-gray-600 hover:bg-gray-500 text-white rounded-lg">
-            Cancelar
-          </button>
-        </div>
-      </form>
-    );
-  };
+  ));
 
   // RENDERIZAÇÃO DAS SEÇÕES
   const renderDashboard = () => (
@@ -1382,13 +670,14 @@ function Dashboard() {
               <ShoppingBag className="w-8 h-8 text-emerald-500" />
             </div>
           </div>
-          <div className="bg-gray-700 rounded-lg p-4">
+          <div className="bg-gray-700 rounded-lg p-4 cursor-pointer hover:bg-gray-600 transition-colors" onClick={filtrarPedidosAReceber}>
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-gray-400 text-sm">A Receber</p>
                 <p className="text-2xl font-bold text-white">
                   R$ {orders.reduce((sum, order) => sum + (order.saldo_restante || 0), 0).toFixed(2)}
                 </p>
+                <p className="text-xs text-gray-400 mt-1">Clique para ver detalhes</p>
               </div>
               <Clock className="w-8 h-8 text-yellow-500" />
             </div>
@@ -1470,19 +759,26 @@ function Dashboard() {
         </div>
       </div>
 
-      {/* Status dos Pedidos */}
+      {/* Status dos Pedidos - CLICÁVEIS */}
       <div className="bg-gray-800 rounded-xl p-6">
-        <h2 className="text-xl font-semibold text-white mb-6">Status dos Pedidos</h2>
+        <h2 className="text-xl font-semibold text-white mb-6">Status dos Pedidos (Clique para filtrar)</h2>
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
-          {orderStatusData.map((item, index) => (
-            <div key={index} className="bg-gray-700 rounded-lg p-4 text-center">
-              <div className="flex items-center justify-center mb-2">
-                <StatusIcon status={item.status} />
+          {statusOptions.map((status) => {
+            const count = orders.filter(o => o.status === status).length;
+            return (
+              <div 
+                key={status} 
+                className="bg-gray-700 rounded-lg p-4 text-center cursor-pointer hover:bg-gray-600 transition-colors"
+                onClick={() => filtrarPedidosPorStatus(status)}
+              >
+                <div className="flex items-center justify-center mb-2">
+                  <StatusIcon status={status} />
+                </div>
+                <p className="text-gray-400 text-xs mb-1">{status}</p>
+                <p className="text-lg font-bold text-white">{count}</p>
               </div>
-              <p className="text-gray-400 text-xs mb-1">{item.status}</p>
-              <p className="text-lg font-bold text-white">{item.count}</p>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
     </div>
@@ -1500,6 +796,25 @@ function Dashboard() {
           Novo Pedido
         </button>
       </div>
+
+      {/* Mostrar filtro ativo */}
+      {orderFilter && (
+        <div className="bg-blue-900/20 border border-blue-500 rounded-lg p-4 flex justify-between items-center">
+          <div>
+            <p className="text-blue-400 font-medium">Filtro Ativo: {orderFilter}</p>
+            <p className="text-blue-300 text-sm">{filteredOrders.length} pedido(s) encontrado(s)</p>
+          </div>
+          <button 
+            onClick={() => {
+              setFilteredOrders([]);
+              setOrderFilter('');
+            }}
+            className="text-blue-400 hover:text-blue-300"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+      )}
       
       <div className="bg-gray-800 rounded-xl p-6">
         <div className="flex flex-col md:flex-row gap-4 mb-6">
@@ -1522,13 +837,21 @@ function Dashboard() {
         </div>
         
         <div className="space-y-4">
-          {orders.map((order) => (
+          {(filteredOrders.length > 0 ? filteredOrders : orders).map((order) => (
             <div key={order.id} className="bg-gray-700 rounded-lg p-4">
               <div className="flex justify-between items-start">
                 <div>
                   <h3 className="text-white font-semibold text-lg">{order.cliente_empresa}</h3>
                   <p className="text-gray-400 text-sm">Pedido: {order.dataPedido}</p>
-                  <p className="text-gray-400 text-sm">Status: {order.status}</p>
+                  <p className="text-gray-400 text-sm">Status: 
+                    <span className={`ml-2 px-2 py-1 rounded text-xs font-medium ${
+                      order.status === 'Pago' ? 'bg-green-500/20 text-green-400' :
+                      order.status === 'Atrasado' ? 'bg-red-500/20 text-red-400' :
+                      'bg-yellow-500/20 text-yellow-400'
+                    }`}>
+                      {order.status}
+                    </span>
+                  </p>
                   {order.dataEntrega && <p className="text-gray-400 text-sm">Entrega: {order.dataEntrega}</p>}
                 </div>
                 <div className="text-right">
@@ -1579,9 +902,15 @@ function Dashboard() {
           ))}
         </div>
         
-        {orders.length === 0 && (
+        {(filteredOrders.length === 0 && orderFilter === '') && orders.length === 0 && (
           <div className="text-center py-8 text-gray-400">
             Nenhum pedido encontrado. Clique em "Novo Pedido" para começar.
+          </div>
+        )}
+
+        {filteredOrders.length === 0 && orderFilter !== '' && (
+          <div className="text-center py-8 text-gray-400">
+            Nenhum pedido encontrado para o filtro aplicado.
           </div>
         )}
       </div>
@@ -1630,8 +959,8 @@ function Dashboard() {
                     {editingClient === client.id ? (
                       <input
                         type="text"
-                        value={novoCliente.empresa}
-                        onChange={(e) => setNovoCliente({...novoCliente, empresa: e.target.value})}
+                        value={clientForm.empresa}
+                        onChange={(e) => setClientForm(prev => ({...prev, empresa: e.target.value}))}
                         className="w-full p-2 bg-gray-600 text-white rounded border border-gray-500"
                       />
                     ) : (
@@ -1642,8 +971,8 @@ function Dashboard() {
                     {editingClient === client.id ? (
                       <input
                         type="text"
-                        value={novoCliente.contato}
-                        onChange={(e) => setNovoCliente({...novoCliente, contato: e.target.value})}
+                        value={clientForm.contato}
+                        onChange={(e) => setClientForm(prev => ({...prev, contato: e.target.value}))}
                         className="w-full p-2 bg-gray-600 text-white rounded border border-gray-500"
                       />
                     ) : (
@@ -1654,8 +983,8 @@ function Dashboard() {
                     {editingClient === client.id ? (
                       <input
                         type="text"
-                        value={novoCliente.telefone}
-                        onChange={(e) => setNovoCliente({...novoCliente, telefone: e.target.value})}
+                        value={clientForm.telefone}
+                        onChange={(e) => setClientForm(prev => ({...prev, telefone: e.target.value}))}
                         className="w-full p-2 bg-gray-600 text-white rounded border border-gray-500"
                       />
                     ) : (
@@ -1666,8 +995,8 @@ function Dashboard() {
                     {editingClient === client.id ? (
                       <input
                         type="text"
-                        value={novoCliente.endereco}
-                        onChange={(e) => setNovoCliente({...novoCliente, endereco: e.target.value})}
+                        value={clientForm.endereco}
+                        onChange={(e) => setClientForm(prev => ({...prev, endereco: e.target.value}))}
                         className="w-full p-2 bg-gray-600 text-white rounded border border-gray-500"
                       />
                     ) : (
@@ -1931,7 +1260,7 @@ function Dashboard() {
 
         {agendaViewType === 'lista' ? (
           <div className="space-y-3">
-            {filtrarAgenda().map((item) => (
+            {agenda.map((item) => (
               <div key={item.id} className="flex justify-between items-center p-4 bg-gray-700 rounded-lg">
                 <div className="flex items-center gap-3">
                   <div className={`w-3 h-3 rounded-full ${
@@ -2215,11 +1544,7 @@ function Dashboard() {
 
   const renderModalContent = () => {
     switch(modalType) {
-      case 'pedido': return <PedidoForm />;
       case 'cliente': return <ClienteForm />;
-      case 'receita': return <TransacaoForm tipo="receita" />;
-      case 'despesa': return <TransacaoForm tipo="despesa" />;
-      case 'compromisso': return <CompromissoForm />;
       default: return null;
     }
   };
@@ -2229,34 +1554,11 @@ function Dashboard() {
       {/* Sidebar */}
       <div className="w-64 bg-gray-800 border-r border-gray-700">
         <div className="p-6">
-          {/* Logo integrada ao header sem fundo quadrado */}
+          {/* Logo fixa como parte do header */}
           <div className="flex items-center gap-3 mb-8">
-            <div 
-              className="cursor-pointer hover:opacity-80 transition-opacity"
-              onClick={() => fileInputRef.current?.click()}
-            >
-              {logoUrl ? (
-                <img 
-                  src={logoUrl} 
-                  alt="Logo" 
-                  className="w-[120px] h-[120px] object-contain rounded-lg"
-                />
-              ) : (
-                <div className="w-[120px] h-[120px] bg-gray-700 rounded-lg border-2 border-dashed border-gray-600 flex items-center justify-center hover:border-emerald-500 transition-colors">
-                  <div className="text-center">
-                    <Upload className="w-8 h-8 text-gray-400 mx-auto mb-2" />
-                    <span className="text-gray-400 text-xs">Upload Logo<br/>120x120</span>
-                  </div>
-                </div>
-              )}
+            <div className="w-[120px] h-[120px] bg-gradient-to-br from-emerald-500 to-teal-600 rounded-lg flex items-center justify-center shadow-lg">
+              <span className="text-white font-bold text-2xl">IS</span>
             </div>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              onChange={handleLogoUpload}
-              className="hidden"
-            />
           </div>
           
           <nav className="space-y-2">
@@ -2300,15 +1602,65 @@ function Dashboard() {
                   className="bg-gray-700 text-white rounded-lg pl-10 pr-4 py-2 text-sm border border-gray-600 focus:border-emerald-500 focus:outline-none"
                 />
               </div>
-              <button className="relative text-gray-400 hover:text-white">
-                <Bell className="w-5 h-5" />
-                <span className="absolute -top-1 -right-1 w-2 h-2 bg-red-500 rounded-full"></span>
-              </button>
+              
+              {/* Sistema de Notificações */}
+              <div className="relative">
+                <button 
+                  className="relative text-gray-400 hover:text-white"
+                  onClick={() => setShowNotifications(!showNotifications)}
+                >
+                  <Bell className="w-5 h-5" />
+                  {getNotifications.length > 0 && (
+                    <span className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 rounded-full text-xs text-white flex items-center justify-center">
+                      {getNotifications.length}
+                    </span>
+                  )}
+                </button>
+                
+                {showNotifications && (
+                  <div className="absolute right-0 top-8 w-80 bg-gray-800 border border-gray-600 rounded-lg shadow-xl z-50 max-h-96 overflow-y-auto">
+                    <div className="p-4 border-b border-gray-600">
+                      <h3 className="text-white font-medium">Notificações</h3>
+                    </div>
+                    {getNotifications.length > 0 ? (
+                      <div className="max-h-80 overflow-y-auto">
+                        {getNotifications.map((notification) => (
+                          <div key={notification.id} className="p-4 border-b border-gray-700 hover:bg-gray-700">
+                            <div className="flex items-start gap-3">
+                              <div className={`w-2 h-2 rounded-full mt-2 ${
+                                notification.tipo === 'urgente' ? 'bg-red-500' :
+                                notification.tipo === 'alerta' ? 'bg-orange-500' :
+                                notification.tipo === 'aviso' ? 'bg-yellow-500' : 'bg-blue-500'
+                              }`}></div>
+                              <div className="flex-1">
+                                <p className={`text-sm font-medium ${
+                                  notification.tipo === 'urgente' ? 'text-red-400' :
+                                  notification.tipo === 'alerta' ? 'text-orange-400' :
+                                  notification.tipo === 'aviso' ? 'text-yellow-400' : 'text-blue-400'
+                                }`}>
+                                  {notification.titulo}
+                                </p>
+                                <p className="text-gray-300 text-xs mt-1">{notification.mensagem}</p>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="p-4 text-center text-gray-400">
+                        <Bell className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                        <p className="text-sm">Nenhuma notificação</p>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+              
               <div className="flex items-center gap-3">
                 <div className="w-8 h-8 bg-gray-600 rounded-full flex items-center justify-center">
                   <User className="w-4 h-4 text-gray-300" />
                 </div>
-                <span className="text-white text-sm">Admin</span>
+                <span className="text-white text-sm">Roger</span>
               </div>
             </div>
           </div>
