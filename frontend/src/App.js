@@ -575,6 +575,150 @@ function Dashboard() {
     setClientForm({ empresa: '', contato: '', telefone: '', endereco: '' });
   }, []);
 
+  // FUNÇÕES PARA PEDIDOS
+  const criarPedido = useCallback(async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    
+    try {
+      // Validar se tem pelo menos um item
+      if (orderForm.itens.length === 0 || !orderForm.itens[0].modelo) {
+        alert('Adicione pelo menos um item ao pedido');
+        setLoading(false);
+        return;
+      }
+
+      // Calcular valores totais
+      let valorTotal = 0;
+      let quantidadeTotal = 0;
+      
+      const itensProcessados = orderForm.itens.map(item => {
+        const { valorTotal: itemTotal, quantidadeTotal: itemQtd } = calcularValorComAdicional(
+          item.valor_unitario, 
+          item.tamanhos
+        );
+        valorTotal += itemTotal;
+        quantidadeTotal += itemQtd;
+        
+        return {
+          ...item,
+          quantidade_total: itemQtd,
+          valor_total: itemTotal
+        };
+      });
+
+      const novoPedido = {
+        id: Date.now(),
+        cliente_empresa: orderForm.cliente_empresa,
+        itens: itensProcessados,
+        quantidade: quantidadeTotal,
+        valor_total: valorTotal,
+        entrada_paga: 0,
+        saldo_restante: valorTotal,
+        status: 'Fazer Mockup',
+        dataEntrega: orderForm.previsao_entrega,
+        dataPedido: new Date().toISOString().split('T')[0],
+        observacoes: orderForm.observacoes || ''
+      };
+      
+      setOrders(prev => [...prev, novoPedido]);
+      
+      // Atualizar dados do cliente se existir
+      if (orderForm.cliente_id) {
+        setClients(prev => prev.map(c => 
+          c.id === parseInt(orderForm.cliente_id) 
+            ? { 
+                ...c, 
+                totalCompras: c.totalCompras + valorTotal,
+                ultimaCompra: novoPedido.dataPedido,
+                pedidosTotal: c.pedidosTotal + 1
+              }
+            : c
+        ));
+      }
+      
+      closeModal();
+      alert('Pedido criado com sucesso!');
+    } catch (error) {
+      console.error('Erro ao criar pedido:', error);
+      alert('Erro ao criar pedido');
+    } finally {
+      setLoading(false);
+    }
+  }, [orderForm, calcularValorComAdicional, closeModal]);
+
+  const adicionarItem = useCallback(() => {
+    setOrderForm(prev => ({
+      ...prev,
+      itens: [...prev.itens, {
+        modelo: '',
+        tecido: '',
+        cor: '',
+        tamanhos: {},
+        personalizacao: '',
+        posicoes: [],
+        valor_unitario: 0,
+        quantidade_total: 0,
+        valor_adicional: 0
+      }]
+    }));
+  }, []);
+
+  const removerItem = useCallback((index) => {
+    setOrderForm(prev => ({
+      ...prev,
+      itens: prev.itens.filter((_, i) => i !== index)
+    }));
+  }, []);
+
+  const atualizarItem = useCallback((index, campo, valor) => {
+    setOrderForm(prev => ({
+      ...prev,
+      itens: prev.itens.map((item, i) => 
+        i === index ? { ...item, [campo]: valor } : item
+      )
+    }));
+  }, []);
+
+  const atualizarTamanhoItem = useCallback((itemIndex, tamanho, quantidade) => {
+    setOrderForm(prev => ({
+      ...prev,
+      itens: prev.itens.map((item, i) => 
+        i === itemIndex ? {
+          ...item,
+          tamanhos: {
+            ...item.tamanhos,
+            [tamanho]: parseInt(quantidade) || 0
+          }
+        } : item
+      )
+    }));
+  }, []);
+
+  const buscarCliente = useCallback((busca) => {
+    setBuscaCliente(busca);
+    if (busca.length >= 2) {
+      const filtrados = clients.filter(cliente => 
+        cliente.empresa.toLowerCase().includes(busca.toLowerCase()) ||
+        cliente.contato.toLowerCase().includes(busca.toLowerCase())
+      );
+      setClientesFiltrados(filtrados);
+    } else {
+      setClientesFiltrados([]);
+    }
+  }, [clients]);
+
+  const selecionarCliente = useCallback((cliente) => {
+    setOrderForm(prev => ({
+      ...prev,
+      cliente_id: cliente.id.toString(),
+      cliente_empresa: cliente.empresa
+    }));
+    setBuscaCliente(cliente.empresa);
+    setClientesFiltrados([]);
+    setMostrarFormularioCliente(false);
+  }, []);
+
   const StatusIcon = ({ status }) => {
     switch(status) {
       case 'Pedir Tecido': return <Package className="w-4 h-4" />;
@@ -670,6 +814,337 @@ function Dashboard() {
           className="flex-1 bg-emerald-500 hover:bg-emerald-600 text-white py-2 px-4 rounded-lg disabled:opacity-50"
         >
           {loading ? 'Salvando...' : 'Salvar Cliente'}
+        </button>
+        <button type="button" onClick={closeModal} className="px-6 py-2 bg-gray-600 hover:bg-gray-500 text-white rounded-lg">
+          Cancelar
+        </button>
+      </div>
+    </form>
+  ));
+
+  // COMPONENTE DE FORMULÁRIO DE PEDIDO OTIMIZADO
+  const PedidoForm = React.memo(() => (
+    <form onSubmit={criarPedido} className="space-y-6">
+      {/* Seleção de Cliente */}
+      <div className="bg-gray-700 rounded-lg p-4">
+        <h4 className="text-white font-medium mb-4">Cliente</h4>
+        <div className="space-y-4">
+          <div>
+            <label className="block text-gray-300 text-sm mb-2">Buscar Cliente</label>
+            <input 
+              type="text" 
+              value={buscaCliente}
+              onChange={(e) => buscarCliente(e.target.value)}
+              placeholder="Digite o nome da empresa ou contato..."
+              className="w-full bg-gray-600 text-white rounded-lg px-3 py-2 border border-gray-500" 
+            />
+            {clientesFiltrados.length > 0 && (
+              <div className="mt-2 max-h-32 overflow-y-auto bg-gray-600 rounded border border-gray-500">
+                {clientesFiltrados.map(cliente => (
+                  <button
+                    key={cliente.id}
+                    type="button"
+                    onClick={() => selecionarCliente(cliente)}
+                    className="w-full text-left px-3 py-2 text-white hover:bg-gray-500 border-b border-gray-500 last:border-b-0"
+                  >
+                    <div className="font-medium">{cliente.empresa}</div>
+                    <div className="text-sm text-gray-300">{cliente.contato} - {cliente.telefone}</div>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          
+          {!orderForm.cliente_empresa && (
+            <div className="text-center">
+              <span className="text-gray-400 text-sm">ou </span>
+              <button
+                type="button"
+                onClick={() => setMostrarFormularioCliente(true)}
+                className="text-emerald-400 hover:text-emerald-300 text-sm underline"
+              >
+                cadastrar novo cliente
+              </button>
+            </div>
+          )}
+          
+          {mostrarFormularioCliente && (
+            <div className="space-y-3 border-t border-gray-600 pt-4">
+              <h5 className="text-white font-medium">Cadastro Rápido de Cliente</h5>
+              <div className="grid grid-cols-2 gap-3">
+                <input 
+                  type="text" 
+                  placeholder="Nome da Empresa"
+                  value={clientForm.empresa}
+                  onChange={(e) => setClientForm(prev => ({...prev, empresa: e.target.value}))}
+                  className="bg-gray-600 text-white rounded px-3 py-2 border border-gray-500" 
+                />
+                <input 
+                  type="text" 
+                  placeholder="Contato"
+                  value={clientForm.contato}
+                  onChange={(e) => setClientForm(prev => ({...prev, contato: e.target.value}))}
+                  className="bg-gray-600 text-white rounded px-3 py-2 border border-gray-500" 
+                />
+                <input 
+                  type="text" 
+                  placeholder="Telefone"
+                  value={clientForm.telefone}
+                  onChange={(e) => setClientForm(prev => ({...prev, telefone: e.target.value}))}
+                  className="bg-gray-600 text-white rounded px-3 py-2 border border-gray-500" 
+                />
+                <input 
+                  type="text" 
+                  placeholder="Endereço"
+                  value={clientForm.endereco}
+                  onChange={(e) => setClientForm(prev => ({...prev, endereco: e.target.value}))}
+                  className="bg-gray-600 text-white rounded px-3 py-2 border border-gray-500" 
+                />
+              </div>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={criarCliente}
+                  disabled={loading}
+                  className="px-3 py-1 bg-emerald-500 hover:bg-emerald-600 text-white rounded text-sm disabled:opacity-50"
+                >
+                  Salvar Cliente
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMostrarFormularioCliente(false)}
+                  className="px-3 py-1 bg-gray-600 hover:bg-gray-500 text-white rounded text-sm"
+                >
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          )}
+          
+          {orderForm.cliente_empresa && (
+            <div className="bg-emerald-900/20 border border-emerald-500 rounded p-3">
+              <div className="flex justify-between items-center">
+                <span className="text-emerald-400 font-medium">{orderForm.cliente_empresa}</span>
+                <button
+                  type="button"
+                  onClick={() => setOrderForm(prev => ({...prev, cliente_id: '', cliente_empresa: ''}))}
+                  className="text-red-400 hover:text-red-300"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Itens do Pedido */}
+      <div className="bg-gray-700 rounded-lg p-4">
+        <div className="flex justify-between items-center mb-4">
+          <h4 className="text-white font-medium">Itens do Pedido</h4>
+          <button
+            type="button"
+            onClick={adicionarItem}
+            className="bg-emerald-500 hover:bg-emerald-600 text-white px-3 py-1 rounded text-sm flex items-center gap-1"
+          >
+            <Plus className="w-4 h-4" />
+            Adicionar Item
+          </button>
+        </div>
+        
+        {orderForm.itens.map((item, index) => (
+          <div key={index} className="bg-gray-600 rounded p-4 mb-4 border border-gray-500">
+            <div className="flex justify-between items-center mb-3">
+              <h5 className="text-white font-medium">Item {index + 1}</h5>
+              {orderForm.itens.length > 1 && (
+                <button
+                  type="button"
+                  onClick={() => removerItem(index)}
+                  className="text-red-400 hover:text-red-300"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3">
+              <div>
+                <label className="block text-gray-300 text-sm mb-1">Modelo *</label>
+                <select 
+                  value={item.modelo}
+                  onChange={(e) => atualizarItem(index, 'modelo', e.target.value)}
+                  className="w-full bg-gray-500 text-white rounded px-3 py-2 border border-gray-400"
+                  required
+                >
+                  <option value="">Selecionar modelo</option>
+                  {modelos.map((modelo, idx) => (
+                    <option key={idx} value={modelo}>{modelo}</option>
+                  ))}
+                </select>
+              </div>
+              
+              <div>
+                <label className="block text-gray-300 text-sm mb-1">Tecido *</label>
+                <select 
+                  value={item.tecido}
+                  onChange={(e) => atualizarItem(index, 'tecido', e.target.value)}
+                  className="w-full bg-gray-500 text-white rounded px-3 py-2 border border-gray-400"
+                  required
+                >
+                  <option value="">Selecionar tecido</option>
+                  {tecidos.map((tecido, idx) => (
+                    <option key={idx} value={tecido}>{tecido}</option>
+                  ))}
+                </select>
+              </div>
+              
+              <div>
+                <label className="block text-gray-300 text-sm mb-1">Cor *</label>
+                <input 
+                  type="text" 
+                  value={item.cor}
+                  onChange={(e) => atualizarItem(index, 'cor', e.target.value)}
+                  placeholder="Ex: Azul marinho"
+                  className="w-full bg-gray-500 text-white rounded px-3 py-2 border border-gray-400" 
+                  required
+                />
+              </div>
+            </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
+              <div>
+                <label className="block text-gray-300 text-sm mb-1">Personalização *</label>
+                <select 
+                  value={item.personalizacao}
+                  onChange={(e) => atualizarItem(index, 'personalizacao', e.target.value)}
+                  className="w-full bg-gray-500 text-white rounded px-3 py-2 border border-gray-400"
+                  required
+                >
+                  <option value="">Selecionar personalização</option>
+                  {personalizacoes.map((pers, idx) => (
+                    <option key={idx} value={pers}>{pers}</option>
+                  ))}
+                </select>
+              </div>
+              
+              <div>
+                <label className="block text-gray-300 text-sm mb-1">Valor Unitário *</label>
+                <input 
+                  type="number" 
+                  step="0.01"
+                  value={item.valor_unitario}
+                  onChange={(e) => atualizarItem(index, 'valor_unitario', parseFloat(e.target.value) || 0)}
+                  placeholder="0.00"
+                  className="w-full bg-gray-500 text-white rounded px-3 py-2 border border-gray-400" 
+                  required
+                />
+              </div>
+            </div>
+            
+            {/* Tamanhos */}
+            {item.modelo && (
+              <div>
+                <label className="block text-gray-300 text-sm mb-2">Tamanhos e Quantidades *</label>
+                <div className="grid grid-cols-4 md:grid-cols-6 gap-2">
+                  {tamanhosPorCategoria[item.modelo]?.map((tamanho) => (
+                    <div key={tamanho} className="text-center">
+                      <label className="block text-gray-300 text-xs mb-1">{tamanho}</label>
+                      <input 
+                        type="number" 
+                        min="0"
+                        value={item.tamanhos[tamanho] || ''}
+                        onChange={(e) => atualizarTamanhoItem(index, tamanho, e.target.value)}
+                        className="w-full bg-gray-500 text-white rounded px-2 py-1 text-sm border border-gray-400" 
+                      />
+                    </div>
+                  ))}
+                </div>
+                
+                {item.modelo && item.valor_unitario > 0 && Object.keys(item.tamanhos).length > 0 && (
+                  <div className="mt-2 text-sm text-gray-300">
+                    <span>Quantidade total: {calcularQuantidadeTotal(item.tamanhos)}</span>
+                    <span className="ml-4">
+                      Valor total: R$ {calcularValorComAdicional(item.valor_unitario, item.tamanhos).valorTotal.toFixed(2)}
+                    </span>
+                    {calcularValorComAdicional(item.valor_unitario, item.tamanhos).valorAdicional > 0 && (
+                      <span className="ml-4 text-yellow-400">
+                        (Adicional: R$ {calcularValorComAdicional(item.valor_unitario, item.tamanhos).valorAdicional.toFixed(2)})
+                      </span>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {/* Detalhes Adicionais */}
+      <div className="bg-gray-700 rounded-lg p-4 space-y-4">
+        <h4 className="text-white font-medium">Detalhes do Pedido</h4>
+        
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label className="block text-gray-300 text-sm mb-2">Data de Entrega</label>
+            <input 
+              type="date" 
+              value={orderForm.previsao_entrega}
+              onChange={(e) => setOrderForm(prev => ({...prev, previsao_entrega: e.target.value}))}
+              className="w-full bg-gray-600 text-white rounded-lg px-3 py-2 border border-gray-500" 
+            />
+          </div>
+        </div>
+        
+        <div>
+          <label className="block text-gray-300 text-sm mb-2">Observações</label>
+          <textarea 
+            rows="3"
+            value={orderForm.observacoes}
+            onChange={(e) => setOrderForm(prev => ({...prev, observacoes: e.target.value}))}
+            placeholder="Informações adicionais sobre o pedido..."
+            className="w-full bg-gray-600 text-white rounded-lg px-3 py-2 border border-gray-500"
+          ></textarea>
+        </div>
+      </div>
+
+      {/* Resumo Final */}
+      {orderForm.itens.some(item => item.modelo && Object.keys(item.tamanhos).length > 0) && (
+        <div className="bg-emerald-900/20 border border-emerald-500 rounded-lg p-4">
+          <h4 className="text-emerald-400 font-medium mb-2">Resumo do Pedido</h4>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+            <div>
+              <span className="text-gray-300">Quantidade Total:</span>
+              <p className="text-white font-medium">
+                {orderForm.itens.reduce((total, item) => total + calcularQuantidadeTotal(item.tamanhos), 0)} peças
+              </p>
+            </div>
+            <div>
+              <span className="text-gray-300">Valor Total:</span>
+              <p className="text-white font-medium">
+                R$ {orderForm.itens.reduce((total, item) => 
+                  total + calcularValorComAdicional(item.valor_unitario, item.tamanhos).valorTotal, 0
+                ).toFixed(2)}
+              </p>
+            </div>
+            <div>
+              <span className="text-gray-300">Cliente:</span>
+              <p className="text-white font-medium">{orderForm.cliente_empresa || 'Não selecionado'}</p>
+            </div>
+            <div>
+              <span className="text-gray-300">Entrega:</span>
+              <p className="text-white font-medium">{orderForm.previsao_entrega || 'Não definida'}</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="flex gap-3 pt-4">
+        <button
+          type="submit"
+          disabled={loading || !orderForm.cliente_empresa || orderForm.itens.length === 0 || !orderForm.itens[0].modelo}
+          className="flex-1 bg-emerald-500 hover:bg-emerald-600 text-white py-2 px-4 rounded-lg disabled:opacity-50"
+        >
+          {loading ? 'Salvando...' : 'Criar Pedido'}
         </button>
         <button type="button" onClick={closeModal} className="px-6 py-2 bg-gray-600 hover:bg-gray-500 text-white rounded-lg">
           Cancelar
@@ -1569,6 +2044,7 @@ function Dashboard() {
   const renderModalContent = () => {
     switch(modalType) {
       case 'cliente': return <ClienteForm />;
+      case 'pedido': return <PedidoForm />;
       default: return null;
     }
   };
